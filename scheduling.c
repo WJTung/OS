@@ -202,9 +202,10 @@ int main()
     const int priorityL = sched_get_priority_min(SCHED_FIFO);
 	
 	struct sched_param param;
-	param.sched_priority = PriorityH;
+	param.sched_priority = priorityH;
 	//Just want to make sure it won't get preempted by other processes on its CPU
-	if(sched_setscheduler(pid, SCHED_FIFO, &param) != 0) {
+    pid_t pidP = getpid();
+	if(sched_setscheduler(pidP, SCHED_FIFO, &param) != 0) {
 		perror("sched_setscheduler error");
 		exit(EXIT_FAILURE);  
 	}
@@ -221,14 +222,14 @@ int main()
 		    else if(pid == 0) {
                 // child
 		        char exec_time[10];
-				sprintf(exec_time, "%d", P[fork_count].exec_t);
+				sprintf(exec_time, "%d", P[fork_count].execT);
 		        if(execlp("./process", "process", P[fork_count].name, P[fork_count].execT, (char *)NULL) < 0){
 					perror("execlp error");
 					exit(EXIT_FAILURE);
 		        }
 		    }  
             // parent
-            pids[P[fork_count].id] = pid; // use ID (also 0 ~ numP - 1) as index to store pids
+            pids[P[fork_count].ID] = pid; // use ID (also 0 ~ numP - 1) as index to store pids
             fork_count++;
         }
 		//decide who to run on the CPU for child processes
@@ -242,7 +243,7 @@ int main()
 			}
 		}
         // recover priority of last process
-		else if(execute[time_count]->ID != execute[time_count - 1]->ID){
+		else if(exec_order[time_count]->ID != exec_order[time_count - 1]->ID){
 			pid_t prev_pid = pids[exec_order[time_count - 1]->ID];
 			pid_t pid = pids[exec_order[time_count]->ID];
 
