@@ -3,6 +3,9 @@
 #include <string.h>
 #include <unistd.h>
 #include <sched.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+
 const int max_name_length = 32;
 const int max_numP = 1E1;
 const int max_totalT = 1E4;
@@ -123,6 +126,7 @@ int main()
 	scanf("%d", &numP);
 	getchar();
 	int totalT = 0;
+	int *total_exec_time = malloc(numP * sizeof(int));
 	for(int i = 0; i < numP; i++)
 	{
 		char *process_name = malloc(max_name_length * sizeof(char));
@@ -136,6 +140,7 @@ int main()
 		P[i].execT = execution_time;
         P[i].remT = execution_time;
 		P[i].ID = i;
+		total_exec_time[i] = execution_time;
 	}
 	// sort P according to readyT
 	qsort(P, numP, sizeof(Process), compare_Process);
@@ -214,6 +219,15 @@ int main()
     int fork_count = 0;
     pid_t pids[max_numP];
 	for(int time_count = 0; time_count < totalT; time_count++){
+		//check if the process has terminated, if so, wait for it
+		int status;
+		if(total_exec_time[exec_order[time_count]->ID] == 0){
+			if(waitpid(pids[exec_order[time_count]->ID], &status, 0) == -1){
+				perror("waitpid error");
+				exit(EXIT_FAILURE);
+			}
+		}
+
 		//fork the processes that are ready at time_count
 		while(time_count == P[fork_count].readyT){
 			pid_t pid = fork();
@@ -234,31 +248,36 @@ int main()
         }
 		//decide who to run on the CPU for child processes
 		//change priority if a different process is going to run
-        if(time_count == 0){
-			pid_t pid = pids[exec_order[time_count]->ID];
-			param.sched_priority = priorityL;
-			if(sched_setscheduler(pid, SCHED_FIFO, &param) != 0) {
-	    		perror("sched_setscheduler error");
-				exit(EXIT_FAILURE);
+        if(exec_order[time_count] != NULL){
+	        if(time_count == 0){
+				pid_t pid = pids[exec_order[time_count]->ID];
+				param.sched_priority = priorityL;
+				if(sched_setscheduler(pid, SCHED_FIFO, &param) != 0) {
+		    		perror("sched_setscheduler error");
+					exit(EXIT_FAILURE);
+				}
 			}
-		}
-        // recover priority of last process
-		else if(exec_order[time_count]->ID != exec_order[time_count - 1]->ID){
-			pid_t prev_pid = pids[exec_order[time_count - 1]->ID];
-			pid_t pid = pids[exec_order[time_count]->ID];
+	        // recover priority of last process
+			else if(exec_order[time_count]->ID != exec_order[time_count - 1]->ID){
+				pid_t prev_pid = pids[exec_order[time_count - 1]->ID];
+				pid_t pid = pids[exec_order[time_count]->ID];
 
-			param.sched_priority = priorityL;
-			if(sched_setscheduler(prev_pid, SCHED_FIFO, &param) != 0) {
-	    		perror("sched_setscheduler error");
-				exit(EXIT_FAILURE);  
-			}
+				param.sched_priority = priorityL;
+				if(sched_setscheduler(prev_pid, SCHED_FIFO, &param) != 0) {
+		    		perror("sched_setscheduler error");
+					exit(EXIT_FAILURE);  
+				}
 
-			param.sched_priority = priorityH;
-			if(sched_setscheduler(pid, SCHED_FIFO, &param) != 0) {
-	    		perror("sched_setscheduler error");
-				exit(EXIT_FAILURE);  
+				param.sched_priority = priorityH;
+				if(sched_setscheduler(pid, SCHED_FIFO, &param) != 0) {
+		    		perror("sched_setscheduler error");
+					exit(EXIT_FAILURE);  
+				}
 			}
-		}
+			//decrease the executed time of te running process by 1
+			total_exec_time[exec_order[time_count]->ID]--;
+        }
+
 		volatile unsigned long i;
 		for(i=0;i<1000000UL;i++); 
 	}
