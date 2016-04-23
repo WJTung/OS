@@ -18,6 +18,7 @@ typedef struct process
 	char *name;
 	int readyT;
 	int execT;
+    int remT;
 	int ID;
 } Process;
 // function for Process sorting
@@ -45,7 +46,7 @@ void insertP(Process **waiting_list, int policy, Process *P)
 	if(policy == SJF || policy == PSJF) // need to find appropriate place according to execT
 	{
 		waiting_list[numP_now - 1] = P;
-		for(int i = numP_now - 1; i > 0 && waiting_list[i]->execT < waiting_list[i - 1]->execT; i--)
+		for(int i = numP_now - 1; i > 0 && waiting_list[i]->remT < waiting_list[i - 1]->remT; i--)
 		{
 			// new process should be swapped to left
 			Process *temp = waiting_list[i];
@@ -58,8 +59,8 @@ int execP(Process **waiting_list, int policy) // return how long the process sho
 {
 	if(policy == FIFO || policy == SJF) // first process in the waiting_list will be done
 	{
-		int exec_length = waiting_list[0]->execT;
-		waiting_list[0]->execT = 0;
+		int exec_length = waiting_list[0]->remT;
+		waiting_list[0]->remT = 0;
 		waiting_list[0] = NULL;
 		numP_now--;
 		for(int i = 1; i <= numP_now; i++)
@@ -73,15 +74,15 @@ int execP(Process **waiting_list, int policy) // return how long the process sho
 	if(policy == RR)
 	{
 		int exec_length;
-		if(waiting_list[0]->execT > time_quantum)
+		if(waiting_list[0]->remT > time_quantum)
 		{
 			exec_length = time_quantum;
-			waiting_list[0]->execT -= time_quantum;
+			waiting_list[0]->remT -= time_quantum;
 		}
 		else
 		{
-			exec_length = waiting_list[0]->execT;
-			waiting_list[0]->execT = 0;
+			exec_length = waiting_list[0]->remT;
+			waiting_list[0]->remT = 0;
 			waiting_list[0] = NULL; // this process is done
 		}
 		for(int i = 1; i < numP_now; i++)
@@ -96,8 +97,8 @@ int execP(Process **waiting_list, int policy) // return how long the process sho
 	}
 	if(policy == PSJF) // execute only one time unit
 	{
-		waiting_list[0]->execT--;
-		if(waiting_list[0]->execT == 0)
+		waiting_list[0]->remT--;
+		if(waiting_list[0]->remT == 0)
 		{
 			waiting_list[0] = NULL;
 			numP_now--;
@@ -133,6 +134,7 @@ int main()
 		P[i].name = process_name;
 		P[i].readyT = ready_time;
 		P[i].execT = execution_time;
+        P[i].remT = execution_time;
 		P[i].ID = i;
 	}
 	// sort P according to readyT
@@ -209,21 +211,54 @@ int main()
     
     // P already sorted in ascending order of readyT
     int fork_count = 0;
+    pid_t pids[max_numP];
 	for(int time_count = 0; time_count < totalT; time_count++){
 		//fork the processes that are ready at time_count
-		if(time_count == P[fork_count].readyT){
-			int pid = fork();
+		while(time_count == P[fork_count].readyT){
+			pid_t pid = fork();
 		    if(pid < 0)   
 		        printf("error in fork!");   
 		    else if(pid == 0) {
                 // child
 		        char exec_time[10];
-				sprintf(exec_time, "%d", fork[fork_count].exec_t);
+				sprintf(exec_time, "%d", P[fork_count].exec_t);
 		        if(execlp("./process", "process", P[fork_count].name, P[fork_count].execT, (char *)NULL) < 0){
 					perror("execlp error");
 					exit(EXIT_FAILURE);
 		        }
 		    }  
             // parent
+            pids[P[fork_count].id] = pid; // use ID (also 0 ~ numP - 1) as index to store pids
             fork_count++;
+        }
+		//decide who to run on the CPU for child processes
+		//change priority if a different process is going to run
+        if(time_count == 0){
+			pid_t pid = pids[exec_order[time_count]->ID];
+			param.sched_priority = priorityL;
+			if(sched_setscheduler(pid, SCHED_FIFO, &param) != 0) {
+	    		perror("sched_setscheduler error");
+				exit(EXIT_FAILURE);
+			}
+		}
+        // recover priority of last process
+		else if(execute[time_count]->ID != execute[time_count - 1]->ID){
+			pid_t prev_pid = pids[exec_order[time_count - 1]->ID];
+			pid_t pid = pids[exec_order[time_count]->ID];
+
+			param.sched_priority = priorityL;
+			if(sched_setscheduler(prev_pid, SCHED_FIFO, &param) != 0) {
+	    		perror("sched_setscheduler error");
+				exit(EXIT_FAILURE);  
+			}
+
+			param.sched_priority = priorityH;
+			if(sched_setscheduler(pid, SCHED_FIFO, &param) != 0) {
+	    		perror("sched_setscheduler error");
+				exit(EXIT_FAILURE);  
+			}
+		}
+		volatile unsigned long i;
+		for(i=0;i<1000000UL;i++); 
+	}
 }
