@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+#define _USE_GNU
 #include <stdio.h>
 #include <stdlib.h> 
 #include <sys/types.h>
@@ -21,8 +23,8 @@ int main(int argc, char* argv[]){
 
 	//system call print name
 	//system call print pid
-	struct timespec current;
-	getnstimeofday(&current);
+	//struct timespec current;
+	//getnstimeofday(&current);
 	//system call print time
 
 	int i;
@@ -32,7 +34,7 @@ int main(int argc, char* argv[]){
 		for(j = 0; j < 1000000UL; j++); 
 	}
 
-	getnstimeofday(&current);
+	//getnstimeofday(&current);
 	//system call print time
 
 	return 0;

@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+#define _USE_GNU
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,6 +14,7 @@ const int max_totalT = 1E4;
 const int time_quantum = 5E2;
 // malloc should be used if array may be too large
 int numP_now = 0;
+int numP_finish = 0;
 #define FIFO 0
 #define RR 1
 #define SJF 2
@@ -66,6 +69,7 @@ int execP(Process **waiting_list, int policy) // return how long the process sho
 		waiting_list[0]->remT = 0;
 		waiting_list[0] = NULL;
 		numP_now--;
+        numP_finish++;
 		for(int i = 1; i <= numP_now; i++)
 		{
 			Process *temp = waiting_list[i];
@@ -95,7 +99,10 @@ int execP(Process **waiting_list, int policy) // return how long the process sho
 			waiting_list[i - 1] = temp;
 		}
 		if(waiting_list[numP_now - 1] == NULL)
+        {
 			numP_now--;
+            numP_finish++;
+        }
 		return exec_length;
 	}
 	if(policy == PSJF) // execute only one time unit
@@ -105,6 +112,7 @@ int execP(Process **waiting_list, int policy) // return how long the process sho
 		{
 			waiting_list[0] = NULL;
 			numP_now--;
+            numP_finish++;
 			for(int i = 1; i <= numP_now; i++)
 			{
 				Process *temp = waiting_list[i];
@@ -140,7 +148,6 @@ int main()
 		P[i].execT = execution_time;
         P[i].remT = execution_time;
 		P[i].ID = i;
-		total_exec_time[i] = execution_time;
 	}
 	// sort P according to readyT
 	qsort(P, numP, sizeof(Process), compare_Process);
@@ -152,44 +159,7 @@ int main()
 	Process *waiting_list[max_numP];
 	for(int i = 0; i < max_numP; i++)
 		waiting_list[i] = NULL;
-	Process *exec_order[max_totalT];
-	int index_now = 0;
-	int t = 0;
-	while(t < totalT)
-	{
-		while(P[index_now].readyT <= t)
-		{
-			insertP(waiting_list, policy, (P + index_now));
-			index_now++;
-		}
-		if(waiting_list[0] != NULL)
-		{
-			Process *exec_process = waiting_list[0];
-			int exec_length = execP(waiting_list, policy);
-			for(int i = 1; i <= exec_length; i++)
-			{
-				exec_order[t] = exec_process;
-				t++;
-			}
-		}
-		else
-		{
-			exec_order[t] = NULL; // no waiting process now
-			t++;
-		}
-	}
-	// test result
-	for(int i = 0; i < totalT; i++)
-	{
-		if(exec_order[i] != NULL)
-			printf("%d time unit : execute %s\n", i + 1, exec_order[i]->name);
-		else 
-			printf("%d time unit : No process\n", i + 1);
-	}
-	return 0;
     
-    // all result is calculated, start scheduling
-	
     //set CPU
 	
     cpu_set_t cpu_mask;
@@ -216,20 +186,16 @@ int main()
 	}
     
     // P already sorted in ascending order of readyT
+    int time_count = 0;
     int fork_count = 0;
+    Process *exec_process_last = NULL;
+    int numP_finish_last = 0;
     pid_t pids[max_numP];
-	for(int time_count = 0; time_count < totalT; time_count++){
-		//check if the process has terminated, if so, wait for it
-		int status;
-		if(total_exec_time[exec_order[time_count]->ID] == 0){
-			if(waitpid(pids[exec_order[time_count]->ID], &status, 0) == -1){
-				perror("waitpid error");
-				exit(EXIT_FAILURE);
-			}
-		}
-
+	while(numP_finish < numP)
+    {
 		//fork the processes that are ready at time_count
-		while(time_count == P[fork_count].readyT){
+		while(P[fork_count].readyT <= time_count)
+		{
 			pid_t pid = fork();
 		    if(pid < 0)   
 		        printf("error in fork!");   
@@ -244,13 +210,18 @@ int main()
 		    }  
             // parent
             pids[P[fork_count].ID] = pid; // use ID (also 0 ~ numP - 1) as index to store pids
-            fork_count++;
-        }
-		//decide who to run on the CPU for child processes
-		//change priority if a different process is going to run
-        if(exec_order[time_count] != NULL){
-	        if(time_count == 0){
-				pid_t pid = pids[exec_order[time_count]->ID];
+			insertP(waiting_list, policy, (P + fork_count));
+			fork_count++;
+		}
+		if(waiting_list[0] != NULL)
+		{
+		    //decide who to run on the CPU for child processes
+			Process *exec_process = waiting_list[0];
+			int exec_length = execP(waiting_list, policy);
+		    //change priority if a different process is going to run
+	        if(time_count == 0)
+            {
+				pid_t pid = pids[exec_process->ID];
 				param.sched_priority = priorityL;
 				if(sched_setscheduler(pid, SCHED_FIFO, &param) != 0) {
 		    		perror("sched_setscheduler error");
@@ -258,12 +229,11 @@ int main()
 				}
 			}
 	        // recover priority of last process
-			else if(exec_order[time_count]->ID != exec_order[time_count - 1]->ID){
-				pid_t prev_pid = pids[exec_order[time_count - 1]->ID];
-				pid_t pid = pids[exec_order[time_count]->ID];
-
+			else if(exec_process_last != exec_process){
+				pid_t pid_last = pids[exec_process_last->ID];
+				pid_t pid = pids[exec_process->ID];
 				param.sched_priority = priorityL;
-				if(sched_setscheduler(prev_pid, SCHED_FIFO, &param) != 0) {
+				if(sched_setscheduler(pid_last, SCHED_FIFO, &param) != 0) {
 		    		perror("sched_setscheduler error");
 					exit(EXIT_FAILURE);  
 				}
@@ -274,18 +244,42 @@ int main()
 					exit(EXIT_FAILURE);  
 				}
 			}
-			//decrease the executed time of te running process by 1
-			total_exec_time[exec_order[time_count]->ID]--;
-        }
 
-		volatile unsigned long i;
-		for(i=0;i<1000000UL;i++); 
+            for(int exec_t = 1; exec_t <= exec_length; exec_t++)
+            {
+                time_count++;
+		        volatile unsigned long i;
+		        for(i=0;i<1000000UL;i++); 
+		    }
+            
+            //check if the process has terminated, if so, wait for it
+		    if(numP_finish == numP_finish_last + 1)
+            {
+                int status;
+			    if(waitpid(pids[exec_process->ID], &status, 0) == -1)
+                {
+				    perror("waitpid error");
+				    exit(EXIT_FAILURE);
+			    }
+            }
+
+            exec_process_last = exec_process;
+            numP_finish_last = numP_finish;
+        }
+        
+        // no process is waiting
+        else
+        {
+            time_count++;
+		    volatile unsigned long i;
+		    for(i=0;i<1000000UL;i++); 
+            exec_process_last = NULL;
+        }
 	}
 
-	for(i = 0; i < numP; i++){
+	for(int i = 0; i < numP; i++){
 		printf("%s ", P[i].name);
 		printf("%d\n", pids[P[i].ID]);
 	}
 
-	
 }
