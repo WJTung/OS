@@ -281,4 +281,11 @@ int main()
 		volatile unsigned long i;
 		for(i=0;i<1000000UL;i++); 
 	}
+
+	for(i = 0; i < numP; i++){
+		printf("%s ", P[i].name);
+		printf("%d\n", pids[P[i].ID]);
+	}
+
+	
 }
