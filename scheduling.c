@@ -203,6 +203,16 @@ int main()
                 }
             }  
             // parent
+            //change the newly forked child's CPU
+            cpu_set_t cpu_mask;
+            CPU_ZERO(&cpu_mask);
+            CPU_SET(1, &cpu_mask);
+
+            if(sched_setaffinity(pid, sizeof(cpu_set_t), &cpu_mask) != 0){
+                perror("sched_setaffinity error");
+                exit(EXIT_FAILURE);
+            }
+
             pids[P[fork_count].ID] = pid; // use ID (also 0 ~ numP - 1) as index to store pids
             insertP(waiting_list, policy, (P + fork_count));
             fork_count++;
