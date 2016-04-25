@@ -203,7 +203,7 @@ int main()
                 // child
                 char exec_time[10];
                 sprintf(exec_time, "%d", P[fork_count].execT);
-                if(execlp("./process", "process", P[fork_count].name, P[fork_count].execT, (char *)NULL) < 0){
+                if(execlp("./process", "process", P[fork_count].name, exec_time, (char *)NULL) < 0){
                     perror("execlp error");
                     exit(EXIT_FAILURE);
                 }
@@ -242,7 +242,7 @@ int main()
                     }
                 }
                 // recover priority of last process
-                else if(exec_process_last != exec_process){
+                else if(exec_process_last != exec_process && exec_process_last->execT != 0){
                     pid_t pid_last = pids[exec_process_last->ID];
                     pid_t pid = pids[exec_process->ID];
                     param.sched_priority = priorityL;
