@@ -35,8 +35,8 @@ int main(int argc, char* argv[]){
     }
     
     long long end_time = syscall(328);
-    long long end_time_s = start_time / n;
-    long long end_time_ns = start_time % n;
+    long long end_time_s = end_time / n;
+    long long end_time_ns = end_time % n;
 
     char buffer[buffer_size];
     sprintf(buffer, "[project1] %d %lld.%lld %lld.%lld", pid, start_time_s, start_time_ns, end_time_s, end_time_ns);
