@@ -10,7 +10,6 @@
 
 const int max_name_length = 32;
 const int max_numP = 1E1;
-const int max_totalT = 1E4;
 const int time_quantum = 5E2;
 // malloc should be used if array may be too large
 int numP_now = 0;
@@ -126,22 +125,16 @@ int execP(Process **waiting_list, int policy) // return how long the process sho
 int main()
 {
     Process P[max_numP];
-    int schedule[max_totalT];
     char policy_name[5];
     scanf("%s", policy_name);
     int numP;
     scanf("%d", &numP);
-    getchar();
-    int totalT = 0;
-    int *total_exec_time = malloc(numP * sizeof(int));
     for(int i = 0; i < numP; i++)
     {
         char *process_name = malloc(max_name_length * sizeof(char));
         int ready_time;
         int execution_time;
         scanf("%s %d %d", process_name, &ready_time, &execution_time);
-        getchar();
-        totalT += execution_time;
         P[i].name = process_name;
         P[i].readyT = ready_time;
         P[i].execT = execution_time;
@@ -196,6 +189,7 @@ int main()
         //fork the processes that are ready at time_count
         while(P[fork_count].readyT <= time_count && fork_count < numP)
         {
+            printf("%s : fork at time %d\n", P[fork_count].name, time_count);
             pid_t pid = fork();
             if(pid < 0)   
                 printf("error in fork!");   
@@ -270,6 +264,7 @@ int main()
                 // check if the process has terminated, if so, wait for it
                 if(numP_finish == numP_finish_last + 1)
                 {
+                    printf("%s : end at time %d\n", exec_process->name, time_count);
                     int status;
                     if(waitpid(pids[exec_process->ID], &status, 0) == -1)
                     {
