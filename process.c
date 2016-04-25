@@ -5,37 +5,41 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <sched.h>
+const long long n = 1E9;
+const int buffer_size = 1E2;
 
 int main(int argc, char* argv[]){
-	char* name = argv[1];
-	pid_t pid = getpid();
-	int exec_time;
-	exec_time = strtol(argv[2], NULL, 10);
+    
+    long long start_time = syscall(328);
+    long long start_time_s = start_time / n;
+    long long start_time_ns = start_time % n; 
+    
+    char* name = argv[1];
+    pid_t pid = getpid();
+    int exec_time;
+    exec_time = strtol(argv[2], NULL, 10);
 
-	cpu_set_t cpu_mask;
-	CPU_ZERO(&cpu_mask);
-	CPU_SET(1, &cpu_mask);
+    cpu_set_t cpu_mask;
+    CPU_ZERO(&cpu_mask);
+    CPU_SET(1, &cpu_mask);
 
-	if(sched_setaffinity(0, sizeof(cpu_set_t), &cpu_mask) != 0){
-		perror("sched_setaffinity error");
-		exit(EXIT_FAILURE);
-	}
+    if(sched_setaffinity(0, sizeof(cpu_set_t), &cpu_mask) != 0){
+        perror("sched_setaffinity error");
+        exit(EXIT_FAILURE);
+    }
 
-	//system call print name
-	//system call print pid
-	//struct timespec current;
-	//getnstimeofday(&current);
-	//system call print time
+    int i;
+    for(i = 0; i < exec_time; i++){
+        volatile unsigned long j;
+        for(j = 0; j < 1000000UL; j++); 
+    }
+    
+    long long end_time = syscall(328);
+    long long end_time_s = start_time / n;
+    long long end_time_ns = start_time % n;
 
-	int i;
-
-	for(i = 0; i < exec_time; i++){
-		volatile unsigned long j;
-		for(j = 0; j < 1000000UL; j++); 
-	}
-
-	//getnstimeofday(&current);
-	//system call print time
-
-	return 0;
+    char buffer[buffer_size];
+    sprintf(buffer, "[project1] %d %lld.%lld %lld.%lld", pid, start_time_s, start_time_ns, end_time_s, end_time_ns);
+    syscall(327, buffer);
+    return 0;
 }

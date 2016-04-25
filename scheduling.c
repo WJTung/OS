@@ -24,7 +24,6 @@ typedef struct process
     char *name;
     int readyT;
     int execT;
-    int remT;
     int ID;
 } Process;
 // function for Process sorting
@@ -52,7 +51,7 @@ void insertP(Process **waiting_list, int policy, Process *P)
     if(policy == SJF || policy == PSJF) // need to find appropriate place according to execT
     {
         waiting_list[numP_now - 1] = P;
-        for(int i = numP_now - 1; i > 0 && waiting_list[i]->remT < waiting_list[i - 1]->remT; i--)
+        for(int i = numP_now - 1; i > 0 && waiting_list[i]->execT < waiting_list[i - 1]->execT; i--)
         {
             // new process should be swapped to left
             Process *temp = waiting_list[i];
@@ -65,8 +64,8 @@ int execP(Process **waiting_list, int policy) // return how long the process sho
 {
     if(policy == FIFO || policy == SJF) // first process in the waiting_list will be done
     {
-        int exec_length = waiting_list[0]->remT;
-        waiting_list[0]->remT = 0;
+        int exec_length = waiting_list[0]->execT;
+        waiting_list[0]->execT = 0;
         waiting_list[0] = NULL;
         numP_now--;
         numP_finish++;
@@ -81,15 +80,15 @@ int execP(Process **waiting_list, int policy) // return how long the process sho
     if(policy == RR)
     {
         int exec_length;
-        if(waiting_list[0]->remT > time_quantum)
+        if(waiting_list[0]->execT > time_quantum)
         {
             exec_length = time_quantum;
-            waiting_list[0]->remT -= time_quantum;
+            waiting_list[0]->execT -= time_quantum;
         }
         else
         {
-            exec_length = waiting_list[0]->remT;
-            waiting_list[0]->remT = 0;
+            exec_length = waiting_list[0]->execT;
+            waiting_list[0]->execT = 0;
             waiting_list[0] = NULL; // this process is done
         }
         for(int i = 1; i < numP_now; i++)
@@ -107,8 +106,8 @@ int execP(Process **waiting_list, int policy) // return how long the process sho
     }
     if(policy == PSJF) // execute only one time unit
     {
-        waiting_list[0]->remT--;
-        if(waiting_list[0]->remT == 0)
+        waiting_list[0]->execT--;
+        if(waiting_list[0]->execT == 0)
         {
             waiting_list[0] = NULL;
             numP_now--;
@@ -146,7 +145,6 @@ int main()
         P[i].name = process_name;
         P[i].readyT = ready_time;
         P[i].execT = execution_time;
-        P[i].remT = execution_time;
         P[i].ID = i;
     }
     // sort P according to readyT
@@ -188,8 +186,10 @@ int main()
     // P already sorted in ascending order of readyT
     int time_count = 0;
     int fork_count = 0;
+    Process *exec_process = NULL;
     Process *exec_process_last = NULL;
     int numP_finish_last = 0;
+    int exec_length = 0;
     pid_t pids[max_numP];
     while(numP_finish < numP)
     {
@@ -213,68 +213,75 @@ int main()
             insertP(waiting_list, policy, (P + fork_count));
             fork_count++;
         }
-        if(waiting_list[0] != NULL)
-        {
-            //decide who to run on the CPU for child processes
-            Process *exec_process = waiting_list[0];
-            int exec_length = execP(waiting_list, policy);
-            //change priority if a different process is going to run
-            if(time_count == 0)
-            {
-                pid_t pid = pids[exec_process->ID];
-                param.sched_priority = priorityL;
-                if(sched_setscheduler(pid, SCHED_FIFO, &param) != 0) {
-                    perror("sched_setscheduler error");
-                    exit(EXIT_FAILURE);
-                }
-            }
-            // recover priority of last process
-            else if(exec_process_last != exec_process){
-                pid_t pid_last = pids[exec_process_last->ID];
-                pid_t pid = pids[exec_process->ID];
-                param.sched_priority = priorityL;
-                if(sched_setscheduler(pid_last, SCHED_FIFO, &param) != 0) {
-                    perror("sched_setscheduler error");
-                    exit(EXIT_FAILURE);  
-                }
-
-                param.sched_priority = priorityH;
-                if(sched_setscheduler(pid, SCHED_FIFO, &param) != 0) {
-                    perror("sched_setscheduler error");
-                    exit(EXIT_FAILURE);  
-                }
-            }
-
-            for(int exec_t = 1; exec_t <= exec_length; exec_t++)
-            {
-                time_count++;
-                volatile unsigned long i;
-                for(i=0;i<1000000UL;i++); 
-            }
-            
-            //check if the process has terminated, if so, wait for it
-            if(numP_finish == numP_finish_last + 1)
-            {
-                int status;
-                if(waitpid(pids[exec_process->ID], &status, 0) == -1)
-                {
-                    perror("waitpid error");
-                    exit(EXIT_FAILURE);
-                }
-            }
-
-            exec_process_last = exec_process;
-            numP_finish_last = numP_finish;
-        }
+        
+        // decide next process  
         
         // no process is waiting
-        else
+        if(waiting_list[0] == NULL && exec_length == 0)
         {
             time_count++;
             volatile unsigned long i;
             for(i=0;i<1000000UL;i++); 
             exec_process_last = NULL;
         }
+        else
+        {
+            // find next process in the list
+            if(exec_length == 0)
+            {
+                exec_process = waiting_list[0];
+                exec_length = execP(waiting_list, policy);
+                //change priority if a different process is going to run
+                if(exec_process_last == NULL)
+                {
+                    pid_t pid = pids[exec_process->ID];
+                    param.sched_priority = priorityL;
+                    if(sched_setscheduler(pid, SCHED_FIFO, &param) != 0) {
+                        perror("sched_setscheduler error");
+                        exit(EXIT_FAILURE);
+                    }
+                }
+                // recover priority of last process
+                else if(exec_process_last != exec_process){
+                    pid_t pid_last = pids[exec_process_last->ID];
+                    pid_t pid = pids[exec_process->ID];
+                    param.sched_priority = priorityL;
+                    if(sched_setscheduler(pid_last, SCHED_FIFO, &param) != 0) {
+                        perror("sched_setscheduler error");
+                        exit(EXIT_FAILURE);  
+                    }
+
+                    param.sched_priority = priorityH;
+                    if(sched_setscheduler(pid, SCHED_FIFO, &param) != 0) {
+                        perror("sched_setscheduler error");
+                        exit(EXIT_FAILURE);  
+                    }
+                }   
+            }
+
+            exec_length--;
+            time_count++;
+            volatile unsigned long i;
+            for(i=0;i<1000000UL;i++); 
+            
+            // exec time section for this process is over
+            if(exec_length == 0)
+            {
+                // check if the process has terminated, if so, wait for it
+                if(numP_finish == numP_finish_last + 1)
+                {
+                    int status;
+                    if(waitpid(pids[exec_process->ID], &status, 0) == -1)
+                    {
+                        perror("waitpid error");
+                        exit(EXIT_FAILURE);
+                    }
+                }
+
+                exec_process_last = exec_process;
+                numP_finish_last = numP_finish;
+            }   
+        }    
     }
 
     for(int i = 0; i < numP; i++){
