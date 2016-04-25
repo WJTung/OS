@@ -11,6 +11,7 @@
 const int max_name_length = 32;
 const int max_numP = 1E1;
 const int time_quantum = 5E2;
+const long long n = 1E9;
 // malloc should be used if array may be too large
 int numP_now = 0;
 int numP_finish = 0;
@@ -187,17 +188,25 @@ int main()
     while(numP_finish < numP)
     {
         //fork the processes that are ready at time_count
+        long long start_time = syscall(328);
+        long long start_time_s = start_time / n;
+        long long start_time_ns = start_time % n;
         while(P[fork_count].readyT <= time_count && fork_count < numP)
         {
             printf("%s : fork at time %d\n", P[fork_count].name, time_count);
             pid_t pid = fork();
+            
             if(pid < 0)   
                 printf("error in fork!");   
             else if(pid == 0) {
                 // child
                 char exec_time[10];
                 sprintf(exec_time, "%d", P[fork_count].execT);
-                if(execlp("./process", "process", P[fork_count].name, exec_time, (char *)NULL) < 0){
+                char start_time_s_string[20]; 
+                char start_time_ns_string[20];
+                sprintf(start_time_s_string, "%lld", start_time_s);
+                sprintf(start_time_ns_string, "%lld", start_time_ns);
+                if(execlp("./process", "process", P[fork_count].name, exec_time, start_time_s_string, start_time_ns_string, (char *)NULL) < 0){
                     perror("execlp error");
                     exit(EXIT_FAILURE);
                 }
@@ -239,7 +248,7 @@ int main()
                 if(exec_process_last == NULL)
                 {
                     pid_t pid = pids[exec_process->ID];
-                    param.sched_priority = priorityL;
+                    param.sched_priority = priorityH;
                     if(sched_setscheduler(pid, SCHED_FIFO, &param) != 0) {
                         perror("sched_setscheduler error");
                         exit(EXIT_FAILURE);
