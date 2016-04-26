@@ -165,11 +165,11 @@ int main()
 
     //raise the priority
     
-    const int priorityH = sched_get_priority_max(SCHED_FIFO);
-    const int priorityL = sched_get_priority_min(SCHED_FIFO);
-    
+    const int priorityH = 80;//sched_get_priority_max(SCHED_RR);
+    const int priorityL = 10;//sched_get_priority_min(SCHED_RR);
+    //printf("H:%d L:%d\n",priorityH,priorityL); 
     struct sched_param param;
-    param.sched_priority = priorityH;
+    param.sched_priority = 50;
     //Just want to make sure it won't get preempted by other processes on its CPU
     pid_t pidP = getpid();
     if(sched_setscheduler(pidP, SCHED_FIFO, &param) != 0) {
@@ -185,7 +185,7 @@ int main()
     int numP_finish_last = 0;
     int exec_length = 0;
     pid_t pids[max_numP];
-    while(numP_finish < numP)
+    while(!(numP_finish == numP && exec_length == 0))
     {
         //fork the processes that are ready at time_count
         long long start_time = syscall(328);
@@ -245,21 +245,28 @@ int main()
                 exec_process = waiting_list[0];
                 exec_length = execP(waiting_list, policy);
                 //change priority if a different process is going to run
-                if(exec_process_last == NULL)
+                if(exec_process_last == NULL || exec_process_last->execT == 0)
                 {
+		printf("Set %s to high at time %d\n", exec_process->name, time_count);
                     pid_t pid = pids[exec_process->ID];
+		    printf("PID: %d\n",pid);
                     param.sched_priority = priorityH;
-                    if(sched_setscheduler(pid, SCHED_FIFO, &param) != 0) {
+                    if(sched_setscheduler(pid, SCHED_RR, &param) != 0) {
                         perror("sched_setscheduler error");
                         exit(EXIT_FAILURE);
                     }
+			if(sched_getscheduler(pid) == SCHED_RR)
+			puts("RR");
                 }
                 // recover priority of last process
-                else if(exec_process_last != exec_process && exec_process_last->execT != 0){
+                else
+		{
+		printf("Set %s to high, recover %s to low at time %d\n", exec_process->name, exec_process_last->name, time_count);
                     pid_t pid_last = pids[exec_process_last->ID];
                     pid_t pid = pids[exec_process->ID];
+		    printf("PID:%d\n",pid);
                     param.sched_priority = priorityL;
-                    if(sched_setscheduler(pid_last, SCHED_FIFO, &param) != 0) {
+                    if(sched_setscheduler(pid_last, SCHED_RR, &param) != 0) {
                         perror("sched_setscheduler error");
                         exit(EXIT_FAILURE);  
                     }
@@ -269,7 +276,7 @@ int main()
                         perror("sched_setscheduler error");
                         exit(EXIT_FAILURE);  
                     }
-                }   
+                }	
             }
 
             exec_length--;
