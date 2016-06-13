@@ -30,6 +30,9 @@
 #define master_IOCTL_MMAP 0x12345678
 #define master_IOCTL_EXIT 0x12345679
 #define BUF_SIZE 512
+/* define BUFFER for slave device's mmap */
+#define master_BUF_SIZE 16384
+static char *master_buffer;
 
 typedef struct socket * ksocket_t;
 
@@ -57,7 +60,6 @@ static struct sockaddr_in addr_srv;//address for master
 static struct sockaddr_in addr_cli;//address for slave
 static mm_segment_t old_fs;
 static int addr_len;
-//static  struct mmap_info *mmap_msg; // pointer to the mapped data in this device
 
 //file operations
 static struct file_operations master_fops = {
@@ -65,7 +67,8 @@ static struct file_operations master_fops = {
 	.unlocked_ioctl = master_ioctl,
 	.open = master_open,
 	.write = send_msg,
-	.release = master_close
+	.release = master_close,
+	.mmap = master_mmap
 };
 
 //device info
@@ -117,6 +120,15 @@ static int __init master_init(void)
 		printk("listen failed\n");
 		return -1;
 	}
+
+	/* allocate memory >= file_size for mmap*/    
+    char *master_buffer = kmalloc(master_BUF_SIZE,GFP_KERNEL);
+
+	/* Set the reserved bit to prevent page fault */
+    struct page *page;
+    for (page = virt_to_page(buffer); page < virt_to_page(buffer + master_BUF_SIZE); page++) {
+		mem_map_reserve(page); 
+    }
 	return 0;
 }
 
@@ -131,28 +143,66 @@ static void __exit master_exit(void)
 	set_fs(old_fs);
 	printk(KERN_INFO "master exited!\n");
 	debugfs_remove(file1);
+	/* free allocated buffer */
+	kfree(buffer);
+	/* unreserve page */
+	struct page *page;
+	for (page = virt_to_page(buffer); page < virt_to_page(buffer + master_BUF_SIZE); page++) {
+		mem_map_unreserve(page);
+	}
+	return; 
 }
 
 int master_close(struct inode *inode, struct file *filp)
 {
+	MOD_DEC_USE_COUNT;
 	return 0;
 }
 
 int master_open(struct inode *inode, struct file *filp)
 {
-	return 0;
+	MOD_INC_USE_COUNT; 
+    return 0;
 }
 
+int master_mmap(struct file *filp, struct vm_area_struct *vma) // what is this *filp??
+{
+    unsigned long page,pos;
+	unsigned long start = (unsigned long)vma->vm_start; 
+	unsigned long size = (unsigned long)(vma->vm_end-vma->vm_start); 
+
+	printk(KERN_INFO "mmaptest_mmap called\n");
+
+	/* if userspace tries to mmap beyond end of our buffer, fail */ 
+    if (size > master_BUF_SIZE)
+        return -EINVAL;
+ 
+	/* start off at the start of the buffer */ 
+    pos=(unsigned long) buffer;
+ 
+	/* loop through all the physical pages in the buffer */ 
+    while(size > 0) 
+    {
+		/* remap a single physical page to the process's vma */ 
+        page = virt_to_phys((void *)pos);
+        if (remap_page_range(start, page, PAGE_SIZE, PAGE_SHARED))
+        	return -EAGAIN;
+        start += PAGE_SIZE;
+        pos += PAGE_SIZE;
+        size -= PAGE_SIZE;
+    }
+    return 0; 
+}
 
 static long master_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
 {
 	long ret = -EINVAL;
-	size_t data_size = 0, offset = 0;
+	size_t data_size = 0, offset = 0, file_size = 0;
 	char *tmp;
 	pgd_t *pgd;
 	pud_t *pud;
 	pmd_t *pmd;
-        pte_t *ptep, pte;
+    pte_t *ptep, pte;
 	switch(ioctl_num){
 		case master_IOCTL_CREATESOCK:// create socket and accept a connection
 			sockfd_cli = kaccept(sockfd_srv, (struct sockaddr *)&addr_cli, &addr_len);
@@ -170,6 +220,13 @@ static long master_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
 			ret = 0;
 			break;
 		case master_IOCTL_MMAP:
+			copy_from_user(&file_size, (size_t*)ioctl_param, sizeof(file_size));
+			while(offset + BUF_SIZE < file_size){
+				ksend(sockfd_cli, mmap_msg->data + offset, BUF_SIZE, 0);
+				offset += BUF_SIZE;
+			}
+			ksend(sockfd_cli, mmap_msg->data + offset, file_size - offset, 0);
+		    ret = 0;
 			break;
 		case master_IOCTL_EXIT:
 			if(kclose(sockfd_cli) == -1)
@@ -194,7 +251,7 @@ static long master_ioctl(struct file *file, unsigned int ioctl_num, unsigned lon
 }
 static ssize_t send_msg(struct file *file, const char __user *buf, size_t count, loff_t *data)
 {
-//call when user is writing to this device
+	//call when user is writing to this device
 	char msg[BUF_SIZE];
 	if(copy_from_user(msg, buf, count))
 		return -ENOMEM;
@@ -204,10 +261,6 @@ static ssize_t send_msg(struct file *file, const char __user *buf, size_t count,
 
 }
 
-
-
-
 module_init(master_init);
 module_exit(master_exit);
 MODULE_LICENSE("GPL");
-

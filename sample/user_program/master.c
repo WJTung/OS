@@ -65,6 +65,24 @@ int main (int argc, char* argv[])
 				write(dev_fd, buf, ret);//write to the the device
 			}while(ret > 0);
 			break;
+		case 'm':
+			if((kernel_address = mmap(NULL, file_size, PROT_READ | PROT_WRITE, MAP_SHARED, dev_fd, 0)) == MAP_FAILED){
+				perror("kernel_address error");
+				return -1;
+			}
+			
+			if((file_address = mmap(NULL, file_size, PROT_READ | PROT_WRITE, MAP_SHARED, file_fd, 0)) == MAP_FAILED){
+				perror("file_address error");
+				return -1;
+			}
+
+			memcpy(kernel_address, file_address, file_size);
+			ioctl(dev_fd, 0x12345678, &file_size);
+			ioctl(dev_fd, 0, file_address);
+			munmap(file_address, file_size);
+			munmap(kernel_address, file_size);
+
+			break;
 	}
 
 	if(ioctl(dev_fd, 0x12345679) == -1) // end sending data, close the connection
@@ -73,7 +91,7 @@ int main (int argc, char* argv[])
 		return 1;
 	}
 	gettimeofday(&end, NULL);
-	trans_time = (end.tv_sec - start.tv_sec)*1000 + (end.tv_usec - start.tv_usec)*0.0001;
+	trans_time = (end.tv_sec - start.tv_sec)*1000 + (end.tv_usec - start.tv_usec)*0.001;
 	printf("Transmission time: %lf ms, File size: %d bytes\n", trans_time, file_size / 8);
 
 	close(file_fd);
@@ -84,7 +102,7 @@ int main (int argc, char* argv[])
 
 size_t get_filesize(const char* filename)
 {
-    struct stat st;
-    stat(filename, &st);
-    return st.st_size;
+	struct stat st;
+	stat(filename, &st);
+	return st.st_size;
 }
