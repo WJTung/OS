@@ -11,7 +11,7 @@
 
 #define PAGE_SIZE 4096
 #define BUF_SIZE 512
-size_t get_filesize(const char* filename);//get the size of the input file
+size_t get_filesize(const char* filename); //get the size of the input file
 
 
 int main (int argc, char* argv[])
@@ -66,23 +66,33 @@ int main (int argc, char* argv[])
 			}while(ret > 0);
 			break;
 		case 'm':
-			if((kernel_address = mmap(NULL, file_size, PROT_READ | PROT_WRITE, MAP_SHARED, dev_fd, 0)) == MAP_FAILED){
+			if((kernel_address = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, dev_fd, 0)) == MAP_FAILED){
 				perror("kernel_address error");
 				return -1;
 			}
-			
-			if((file_address = mmap(NULL, file_size, PROT_READ | PROT_WRITE, MAP_SHARED, file_fd, 0)) == MAP_FAILED){
+			while(offset + PAGE_SIZE < file_size){
+				tmp = PAGE_SIZE;
+				if((file_address = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, file_fd, offset)) == MAP_FAILED){
+					perror("file_address error");
+					return -1;
+				}
+				memcpy(kernel_address, file_address, tmp);
+				ioctl(dev_fd, 0x12345678, &tmp);
+				ioctl(dev_fd, 0, file_address);
+				offset += PAGE_SIZE;
+				munmap(file_address,tmp);
+			}
+			if((file_address = mmap(NULL, file_size - offset, PROT_READ | PROT_WRITE, MAP_SHARED, file_fd, offset)) == MAP_FAILED){
 				perror("file_address error");
 				return -1;
 			}
-
-			memcpy(kernel_address, file_address, file_size);
-			ioctl(dev_fd, 0x12345678, &file_size);
+			tmp = file_size - offset;
+            int file_i = 0;
+			memcpy(kernel_address, file_address, tmp);
+			ioctl(dev_fd, 0x12345678, &tmp);
 			ioctl(dev_fd, 0, file_address);
-			munmap(file_address, file_size);
-			munmap(kernel_address, file_size);
-
-			break;
+			munmap(file_address,tmp);
+			munmap(kernel_address,tmp);
 	}
 
 	if(ioctl(dev_fd, 0x12345679) == -1) // end sending data, close the connection
@@ -92,7 +102,7 @@ int main (int argc, char* argv[])
 	}
 	gettimeofday(&end, NULL);
 	trans_time = (end.tv_sec - start.tv_sec)*1000 + (end.tv_usec - start.tv_usec)*0.001;
-	printf("Transmission time: %lf ms, File size: %d bytes\n", trans_time, file_size / 8);
+	printf("Transmission time: %lf ms, File size: %d bytes\n", trans_time, file_size);
 
 	close(file_fd);
 	close(dev_fd);

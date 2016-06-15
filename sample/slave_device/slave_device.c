@@ -1,3 +1,5 @@
+/* Group 1 */
+/* Reference : https://coherentmusings.wordpress.com/2014/06/10/implementing-mmap-for-transferring-data-from-user-space-to-kernel-space/ */
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/string.h>
@@ -29,11 +31,8 @@
 #define slave_IOCTL_MMAP 0x12345678
 #define slave_IOCTL_EXIT 0x12345679
 
-
+#define PAGE_SIZE 4096
 #define BUF_SIZE 512
-
-
-
 
 struct dentry  *file1;//debug file
 
@@ -50,6 +49,7 @@ extern char *inet_ntoa(struct in_addr *in); //DO NOT forget to kfree the return 
 static int __init slave_init(void);
 static void __exit slave_exit(void);
 
+int slave_mmap(struct file *filp, struct vm_area_struct *vma);
 int slave_close(struct inode *inode, struct file *filp);
 int slave_open(struct inode *inode, struct file *filp);
 static long slave_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param);
@@ -59,13 +59,30 @@ static mm_segment_t old_fs;
 static ksocket_t sockfd_cli;//socket to the master server
 static struct sockaddr_in addr_srv; //address of the master server
 
+/* logical address for the mapped page of this device */
+char *page_address;
+
+static int mmap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
+ {
+    struct page *page;
+	page = virt_to_page(page_address);
+	get_page(page);
+	vmf->page = page;
+	return 0;
+}
+
+struct vm_operations_struct mmap_vm_ops = {
+	.fault = mmap_fault
+};
+
 //file operations
 static struct file_operations slave_fops = {
 	.owner = THIS_MODULE,
 	.unlocked_ioctl = slave_ioctl,
 	.open = slave_open,
 	.read = receive_msg,
-	.release = slave_close
+	.release = slave_close,
+	.mmap = slave_mmap
 };
 
 //device info
@@ -98,14 +115,24 @@ static void __exit slave_exit(void)
 	debugfs_remove(file1);
 }
 
-
+int slave_mmap(struct file *filp, struct vm_area_struct *vma)
+{
+	vma->vm_ops = &mmap_vm_ops;
+	vma->vm_flags |= VM_RESERVED;
+	vma->vm_private_data = filp->private_data;
+	return 0;
+}
 int slave_close(struct inode *inode, struct file *filp)
 {
+	free_page((unsigned long)page_address);
+	filp->private_data = NULL;
 	return 0;
 }
 
 int slave_open(struct inode *inode, struct file *filp)
 {
+	page_address = (char *)get_zeroed_page(GFP_KERNEL);
+	filp->private_data = page_address;
 	return 0;
 }
 static long slave_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
@@ -113,16 +140,13 @@ static long slave_ioctl(struct file *file, unsigned int ioctl_num, unsigned long
 	long ret = -EINVAL;
 
 	int addr_len ;
-	unsigned int i;
 	size_t len, data_size = 0;
 	char *tmp, ip[20], buf[BUF_SIZE];
-	struct page *p_print;
-	unsigned char *px;
 
-    pgd_t *pgd;
+	pgd_t *pgd;
 	pud_t *pud;
 	pmd_t *pmd;
-    pte_t *ptep, pte;
+	pte_t *ptep, pte;
 	old_fs = get_fs();
 	set_fs(KERNEL_DS);
 
@@ -159,9 +183,15 @@ static long slave_ioctl(struct file *file, unsigned int ioctl_num, unsigned long
 			ret = 0;
 			break;
 		case slave_IOCTL_MMAP:
-
+			while(data_size < PAGE_SIZE){
+				if((len = krecv(sockfd_cli, buf, sizeof(buf), 0)) == 0)
+					break;
+				memcpy(page_address + data_size, buf, len);
+				data_size += len;
+			}
+			copy_to_user((size_t*)ioctl_param, &data_size, sizeof(data_size));
+			ret = 0;
 			break;
-
 		case slave_IOCTL_EXIT:
 			if(kclose(sockfd_cli) == -1)
 			{
@@ -172,7 +202,7 @@ static long slave_ioctl(struct file *file, unsigned int ioctl_num, unsigned long
 			ret = 0;
 			break;
 		default:
-            pgd = pgd_offset(current->mm, ioctl_param);
+			pgd = pgd_offset(current->mm, ioctl_param);
 			pud = pud_offset(pgd, ioctl_param);
 			pmd = pmd_offset(pud, ioctl_param);
 			ptep = pte_offset_kernel(pmd , ioctl_param);
@@ -187,7 +217,7 @@ static long slave_ioctl(struct file *file, unsigned int ioctl_num, unsigned long
 
 int receive_msg(struct file *filp, char *buf, size_t count, loff_t *offp )
 {
-//call when user is reading from this device
+	//call when user is reading from this device
 	char msg[BUF_SIZE];
 	size_t len;
 	len = krecv(sockfd_cli, msg, sizeof(msg), 0);
@@ -195,9 +225,6 @@ int receive_msg(struct file *filp, char *buf, size_t count, loff_t *offp )
 		return -ENOMEM;
 	return len;
 }
-
-
-
 
 module_init(slave_init);
 module_exit(slave_exit);

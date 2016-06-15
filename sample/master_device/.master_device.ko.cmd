@@ -1,0 +1,1 @@
+cmd_/home/wj/Desktop/OS/OS/re/master_device/master_device.ko := ld -r -m elf_x86_64 -T /usr/src/linux-headers-3.13.0-24-generic/scripts/module-common.lds --build-id  -o /home/wj/Desktop/OS/OS/re/master_device/master_device.ko /home/wj/Desktop/OS/OS/re/master_device/master_device.o /home/wj/Desktop/OS/OS/re/master_device/master_device.mod.o
